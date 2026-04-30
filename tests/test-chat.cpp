@@ -2085,18 +2085,20 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Google Gemma 4 (tool calling with Gemma4 dict format)
         auto tst = peg_tester("models/templates/google-gemma-4-31B-it.jinja");
 
-        tst.test("Hello, world!").expect(simple_assist_msg("Hello, world!")).run();
+        tst.test("Hello, world!").enable_thinking(false).expect(simple_assist_msg("Hello, world!")).run();
 
         // Reasoning and content
         tst.test(
-                "<|channel>thought\nI'm\nthinking<channel|>Hello, world!\nWhat's up?")
+                "I'm\nthinking<channel|>Hello, world!\nWhat's up?")
+            .enable_thinking(true)
             .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
             .expect(message_assist_thoughts)
             .run();
 
         // Empty reasoning (budget=0: sampler forces end tag before newline)
         tst.test(
-                "<|channel>thought<channel|>Hello, world!\nWhat's up?")
+                "<channel|>Hello, world!\nWhat's up?")
+            .enable_thinking(true)
             .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
             .expect(simple_assist_msg("Hello, world!\nWhat's up?", ""))
             .run();
@@ -2104,6 +2106,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Reasoning and content with reasoning_format = none
         tst.test(
                 "<|channel>thought\nI'm\nthinking<channel|>Hello, world!\nWhat's up?")
+            .enable_thinking(false)
             .reasoning_format(COMMON_REASONING_FORMAT_NONE)
             .expect_content("<|channel>thought\nI'm\nthinking<channel|>Hello, world!\nWhat's up?")
             .run();
@@ -2111,6 +2114,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Simple tool call with string argument
         tst.test(
                 "<|tool_call>call:get_time{city:<|\"|>London<|\"|>}<tool_call|>")
+            .enable_thinking(false)
             .tools({ get_time_tool })
             .expect(message_with_tool_calls("get_time", R"({"city": "London"})"))
             .run();
@@ -2118,6 +2122,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with string argument containing special chars
         tst.test(
                 "<|tool_call>call:get_time{city:<|\"|>San Francisco<|\"|>}<tool_call|>")
+            .enable_thinking(false)
             .tools({ get_time_tool })
             .expect(message_with_tool_calls("get_time", R"({"city": "San Francisco"})"))
             .run();
@@ -2125,6 +2130,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with empty args
         tst.test(
                 "<|tool_call>call:empty_args{}<tool_call|>")
+            .enable_thinking(false)
             .tools({ empty_args_tool })
             .expect(message_with_tool_calls("empty_args", "{}"))
             .run();
@@ -2132,6 +2138,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with string and content
         tst.test(
                 "Hello, world!\nWhat's up?<|tool_call>call:get_time{city:<|\"|>Paris<|\"|>}<tool_call|>")
+            .enable_thinking(false)
             .tools({ get_time_tool })
             .expect(message_with_content_and_tool_call("Hello, world!\nWhat's up?", "get_time", R"({"city": "Paris"})"))
             .run();
@@ -2140,6 +2147,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         tst.test(
                 "<|tool_call>call:get_time{city:<|\"|>London<|\"|>}<tool_call|>"
                 "<|tool_call>call:get_weather{city:<|\"|>Paris<|\"|>}<tool_call|>")
+            .enable_thinking(false)
             .tools({ get_time_tool, get_weather_tool })
             .parallel_tool_calls(true)
             .expect_tool_calls({
@@ -2151,6 +2159,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with integer argument (number type)
         tst.test(
                 "<|tool_call>call:special_function{arg1:42}<tool_call|>")
+            .enable_thinking(false)
             .tools({ special_function_tool })
             .expect(message_with_tool_calls("special_function", R"({"arg1": 42})"))
             .run();
@@ -2158,6 +2167,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with negative number argument
         tst.test(
                 "<|tool_call>call:special_function{arg1:-7}<tool_call|>")
+            .enable_thinking(false)
             .tools({ special_function_tool })
             .expect(message_with_tool_calls("special_function", R"({"arg1": -7})"))
             .run();
@@ -2165,6 +2175,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with decimal number argument
         tst.test(
                 "<|tool_call>call:amount{orig:3.14}<tool_call|>")
+            .enable_thinking(false)
             .tools({ amount_tool })
             .expect(message_with_tool_calls("amount", R"({"orig": 3.14})"))
             .run();
@@ -2172,6 +2183,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with boolean argument (true)
         tst.test(
                 "<|tool_call>call:toggle{enabled:true}<tool_call|>")
+            .enable_thinking(false)
             .tools({ toggle_tool })
             .expect(message_with_tool_calls("toggle", R"({"enabled": true})"))
             .run();
@@ -2179,6 +2191,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with boolean argument (false)
         tst.test(
                 "<|tool_call>call:toggle{enabled:false}<tool_call|>")
+            .enable_thinking(false)
             .tools({ toggle_tool })
             .expect(message_with_tool_calls("toggle", R"({"enabled": false})"))
             .run();
@@ -2186,6 +2199,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with null argument
         tst.test(
                 "<|tool_call>call:set_nullable{value:null}<tool_call|>")
+            .enable_thinking(false)
             .tools({ nullable_tool })
             .expect(message_with_tool_calls("set_nullable", R"({"value": null})"))
             .run();
@@ -2193,6 +2207,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with array argument (todo list)
         tst.test(
                 "<|tool_call>call:todo_list{todos:[<|\"|>buy milk<|\"|>,<|\"|>walk dog<|\"|>]}<tool_call|>")
+            .enable_thinking(false)
             .tools({ todo_list })
             .expect(message_with_tool_calls("todo_list", R"({"todos":["buy milk","walk dog"]})"))
             .run();
@@ -2200,6 +2215,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with object/dict argument
         tst.test(
                 "<|tool_call>call:set_config{config:{theme:<|\"|>dark<|\"|>,count:3}}<tool_call|>")
+            .enable_thinking(false)
             .tools({ config_tool })
             .expect(message_with_tool_calls("set_config", R"({"config":{"theme":"dark","count":3}})"))
             .run();
@@ -2207,6 +2223,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with empty array
         tst.test(
                 "<|tool_call>call:todo_list{todos:[]}<tool_call|>")
+            .enable_thinking(false)
             .tools({ todo_list })
             .expect(message_with_tool_calls("todo_list", R"({"todos":[]})"))
             .run();
@@ -2214,6 +2231,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with empty dict
         tst.test(
                 "<|tool_call>call:set_config{config:{}}<tool_call|>")
+            .enable_thinking(false)
             .tools({ config_tool })
             .expect(message_with_tool_calls("set_config", R"({"config":{}})"))
             .run();
@@ -2221,6 +2239,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Tool call with scientific notation number
         tst.test(
                 "<|tool_call>call:amount{orig:1.5e10}<tool_call|>")
+            .enable_thinking(false)
             .tools({ amount_tool })
             .expect(message_with_tool_calls("amount", R"({"orig": 1.5e10})"))
             .run();
@@ -2228,24 +2247,28 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         // Edge cases
         tst.test(
                 "<|channel>thought\n<channel|>Hello, world!\nWhat's up?<channel|>")
+            .enable_thinking(false)
             .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
             .expect(message_assist)
             .run();
 
         tst.test(
                 "<|channel>thought\n<channel|>Hello, world!\nWhat's up?<|channel>thought\n<channel|>")
+            .enable_thinking(false)
             .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
             .expect(message_assist)
             .run();
 
         tst.test(
                 "<|channel>thought\n<channel|>Hello, world!\nWhat's up?<|channel>thought\n<channel|><channel|>")
+            .enable_thinking(false)
             .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
             .expect(message_assist)
             .run();
 
         tst.test(
                 "<|channel><|channel>thought\n<channel|>Hello, world!\nWhat's up?")
+            .enable_thinking(false)
             .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
             .expect(message_assist)
             .run();
@@ -2268,11 +2291,15 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
                 inputs.messages              = { message_user, tool_call_msg, tool_msg };
                 inputs.tools                 = { special_function_tool };
                 inputs.add_generation_prompt = true;
+                inputs.enable_thinking       = false;
 
                 auto params = common_chat_templates_apply(tmpls.get(), inputs);
 
                 if (!string_ends_with(params.prompt, "<turn|>\n<|turn>model\n")) {
-                    throw std::runtime_error("Missing generation prompt for Gemma 4");
+                    throw std::runtime_error("Missing non-thinking generation prompt for Gemma 4");
+                }
+                if (params.prompt.find("<|channel>thought\n<channel|>") != std::string::npos) {
+                    throw std::runtime_error("Gemma 4 rendered an empty thought block with thinking disabled");
                 }
             }
 
@@ -2287,6 +2314,34 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
                 if (string_ends_with(params.prompt, "<|turn>model\n")) {
                     throw std::runtime_error("Gemma 4: generation prompt was modified despite add_generation_prompt=false");
                 }
+            }
+        }
+
+        for (const char * template_path : {
+                "models/templates/google-gemma-4-31B-it.jinja",
+                "models/templates/google-gemma-4-31B-it-interleaved.jinja",
+        }) {
+            auto tmpls = read_templates(template_path);
+
+            common_chat_templates_inputs inputs;
+            inputs.messages              = { message_user };
+            inputs.add_generation_prompt = true;
+            inputs.enable_thinking       = true;
+
+            auto params = common_chat_templates_apply(tmpls.get(), inputs);
+
+            if (params.prompt.rfind("<|turn>model\n<|channel>thought\n") == std::string::npos) {
+                throw std::runtime_error(std::string("Missing thinking generation prompt for ") + template_path);
+            }
+
+            inputs.enable_thinking = false;
+            params                 = common_chat_templates_apply(tmpls.get(), inputs);
+
+            if (!string_ends_with(params.prompt, "<|turn>model\n")) {
+                throw std::runtime_error(std::string("Missing non-thinking generation prompt for ") + template_path);
+            }
+            if (params.prompt.find("<|channel>thought\n<channel|>") != std::string::npos) {
+                throw std::runtime_error(std::string("Gemma 4 rendered an empty thought block with thinking disabled for ") + template_path);
             }
         }
     }

@@ -276,7 +276,7 @@
     {%- if ns.prev_message_type != 'tool_response' -%}
         {{- '<|turn>model\n' -}}
     {%- endif -%}
-    {%- if not enable_thinking | default(false) -%}
-        {{- '<|channel>thought\n<channel|>' -}}
+    {%- if enable_thinking | default(false) -%}
+        {{- '<|channel>thought\n' -}}
     {%- endif -%}
 {%- endif -%}
