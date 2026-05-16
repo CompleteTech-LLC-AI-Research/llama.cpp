@@ -6,6 +6,7 @@
 #include "mtmd-helper.h"
 #include "chat.h"
 #include "base64.hpp"
+#include "http.h"
 
 #include "server-common.h"
 
@@ -907,6 +908,69 @@ static void handle_media(
     }
 }
 
+
+bool server_audio_transcription_enabled() {
+    const char * url = std::getenv("LLAMA_AUDIO_TRANSCRIPTION_URL");
+    return url != nullptr && url[0] != '\0';
+}
+
+static std::string audio_content_type_from_format(const std::string & format) {
+    if (format == "wav") {
+        return "audio/wav";
+    }
+    if (format == "mp3") {
+        return "audio/mpeg";
+    }
+    throw std::invalid_argument("input_audio.format must be either 'wav' or 'mp3'");
+}
+
+static std::string audio_filename_from_format(const std::string & format) {
+    return "input-audio." + format;
+}
+
+std::string server_transcribe_audio(const std::string & data, const std::string & format) {
+    const char * url_env = std::getenv("LLAMA_AUDIO_TRANSCRIPTION_URL");
+    if (url_env == nullptr || url_env[0] == '\0') {
+        throw std::runtime_error("audio input is not supported and LLAMA_AUDIO_TRANSCRIPTION_URL is not configured");
+    }
+
+    const char * model_env = std::getenv("LLAMA_AUDIO_TRANSCRIPTION_MODEL");
+    const std::string model = model_env && model_env[0] != '\0' ? model_env : "whisper-1";
+    const std::string content_type = audio_content_type_from_format(format);
+
+    auto [cli, parts] = common_http_client(url_env);
+    cli.set_connection_timeout(10, 0);
+    cli.set_read_timeout(120, 0);
+    cli.set_write_timeout(120, 0);
+
+    httplib::Headers headers;
+    const char * api_key = std::getenv("LLAMA_AUDIO_TRANSCRIPTION_API_KEY");
+    if (api_key != nullptr && api_key[0] != '\0') {
+        headers.emplace("Authorization", std::string("Bearer ") + api_key);
+    }
+
+    httplib::UploadFormDataItems items = {
+        {"model", model, "", ""},
+        {"response_format", "json", "", ""},
+        {"file", data, audio_filename_from_format(format), content_type},
+    };
+
+    auto res = cli.Post(parts.path, headers, items);
+    if (!res) {
+        throw std::runtime_error("audio transcription request failed: " + httplib::to_string(res.error()));
+    }
+    if (res->status < 200 || res->status >= 300) {
+        throw std::runtime_error("audio transcription request failed: HTTP " + std::to_string(res->status));
+    }
+
+    const json body = json::parse(res->body);
+    const std::string text = json_value(body, "text", std::string());
+    if (text.empty()) {
+        throw std::runtime_error("audio transcription request failed: missing transcript text");
+    }
+    return text;
+}
+
 // used by /chat/completions endpoint
 json oaicompat_chat_params_parse(
     json & body, /* openai api json semantics */
@@ -1003,18 +1067,21 @@ json oaicompat_chat_params_parse(
                 p.erase("image_url");
 
             } else if (type == "input_audio") {
-                if (!opt.allow_audio) {
-                    throw std::runtime_error("audio input is not supported - hint: if this is unexpected, you may need to provide the mmproj");
-                }
-
                 json input_audio   = json_value(p, "input_audio", json::object());
                 std::string data   = json_value(input_audio, "data", std::string());
                 std::string format = json_value(input_audio, "format", std::string());
                 // while we also support flac, we don't allow it here so we matches the OAI spec
-                if (format != "wav" && format != "mp3") {
-                    throw std::invalid_argument("input_audio.format must be either 'wav' or 'mp3'");
-                }
+                audio_content_type_from_format(format);
                 auto decoded_data = base64_decode(data); // expected to be base64 encoded
+
+                if (!opt.allow_audio) {
+                    const std::string transcript = server_transcribe_audio(std::string(decoded_data.begin(), decoded_data.end()), format);
+                    p["type"] = "text";
+                    p["text"] = "Audio transcript:\n" + transcript;
+                    p.erase("input_audio");
+                    continue;
+                }
+
                 out_files.push_back(decoded_data);
 
                 // TODO: add audio_url support by reusing handle_media()

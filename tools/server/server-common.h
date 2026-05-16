@@ -303,6 +303,9 @@ struct server_chat_params {
 // used by /completions endpoint
 json oaicompat_completion_params_parse(const json & body);
 
+bool server_audio_transcription_enabled();
+std::string server_transcribe_audio(const std::string & data, const std::string & format);
+
 // used by /chat/completions endpoint
 json oaicompat_chat_params_parse(
     json & body, /* openai api json semantics */

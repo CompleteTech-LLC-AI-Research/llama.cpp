@@ -3912,7 +3912,7 @@ void server_routes::init_routes() {
             { "model_path",                  meta->model_path },
             { "modalities",                  json {
                 {"vision", meta->has_inp_image},
-                {"audio",  meta->has_inp_audio},
+                {"audio",  meta->has_inp_audio || server_audio_transcription_enabled()},
             } },
             { "media_marker",                get_media_marker() },
             { "endpoint_slots",              params.endpoint_slots },
