@@ -524,6 +524,11 @@ static results_perplexity perplexity(llama_context * ctx, const common_params & 
         logits_stream.write((const char *)&n_chunk, sizeof(n_chunk));
         logits_stream.write((const char *)tokens.data(), n_chunk*n_ctx*sizeof(tokens[0]));
         const int nv = 2*((n_vocab + 1)/2) + 4;
+        // size_t cast: int * int overflows on Qwen-class large-vocab models at
+        // n_ctx >= 16K (e.g. n_ctx=16384 * nv=151940 = 2.49B > INT32_MAX=2.15B);
+        // overflow wraps negative, sign-extends to a giant size_t when passed to
+        // resize(), trips vector::max_size and throws std::length_error. Matches
+        // the existing size_t cast on line 514 above for the same reason.
         log_probs.resize(size_t(n_ctx) * nv);
     }
 
@@ -777,9 +782,6 @@ static void hellaswag_score(llama_context * ctx, const common_params & params) {
 
     size_t hs_task_count = prompt_lines.size()/6;
     LOG_INF("%s : loaded %zu tasks from prompt.\n", __func__, hs_task_count);
-
-    const bool is_spm = llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_SPM;
-    LOG_INF("================================= is_spm = %d\n", is_spm);
 
     // The tasks should be randomized so the score stabilizes quickly.
     bool randomize_tasks = true;
