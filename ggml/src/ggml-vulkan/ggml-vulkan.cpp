@@ -772,6 +772,7 @@ struct vk_device_struct {
     vk_pipeline pipeline_cpy_transpose_16, pipeline_cpy_transpose_32;
     vk_pipeline pipeline_set_rows_i32[GGML_TYPE_COUNT];
     vk_pipeline pipeline_set_rows_i64[GGML_TYPE_COUNT];
+    vk_pipeline pipeline_turbo_wht_f32;
     vk_pipeline pipeline_norm_f32;
     vk_pipeline pipeline_group_norm_f32;
     vk_pipeline pipeline_rms_norm_f32;
@@ -1296,6 +1297,13 @@ struct vk_op_binary_push_constants {
     uint32_t ne20; uint32_t ne21; uint32_t ne22; uint32_t ne23; uint32_t nb20; uint32_t nb21; uint32_t nb22; uint32_t nb23;
     uint32_t misalign_offsets;
     float param1; float param2; int32_t param3;
+};
+
+struct vk_op_turbo_wht_push_constants {
+    uint32_t ne;
+    uint32_t direction;
+    uint32_t group_size;
+    uint32_t has_scale;
 };
 
 struct vk_op_multi_add_push_constants {
@@ -3379,6 +3387,22 @@ static bool ggml_vk_fa_scalar_uses_mmq(const vk_device& device, ggml_type k_type
 #endif
 }
 
+static bool ggml_vk_supports_turbo_set_rows(const vk_device & device, ggml_type type) {
+    if (device->subgroup_size < 8 || !device->subgroup_arithmetic || !device->subgroup_shuffle) {
+        return false;
+    }
+
+    switch (type) {
+        case GGML_TYPE_TURBO2_0:
+        case GGML_TYPE_TURBO4_0:
+            return true;
+        case GGML_TYPE_TURBO3_0:
+            return device->subgroup_ballot;
+        default:
+            return false;
+    }
+}
+
 static void ggml_vk_load_shaders(vk_device& device) {
     VK_LOG_DEBUG("ggml_vk_load_shaders(" << device->name << ")");
 
@@ -4601,6 +4625,7 @@ static void ggml_vk_load_shaders(vk_device& device) {
 
     ggml_vk_create_pipeline(device, device->pipeline_cpy_transpose_32, "cpy_transpose_32", cpy_transpose_32_len, cpy_transpose_32_data, "main", 2, sizeof(vk_op_unary_push_constants), {1, 1, 1}, {}, 1);
     ggml_vk_create_pipeline(device, device->pipeline_cpy_transpose_16, "cpy_transpose_16", cpy_transpose_16_len, cpy_transpose_16_data, "main", 2, sizeof(vk_op_unary_push_constants), {1, 1, 1}, {}, 1);
+    ggml_vk_create_pipeline(device, device->pipeline_turbo_wht_f32, "turbo_wht_f32", turbo_wht_f32_len, turbo_wht_f32_data, "main", 3, sizeof(vk_op_turbo_wht_push_constants), {1, 1, 1}, {}, 1, true);
 
     ggml_vk_create_pipeline(device, device->pipeline_cpy_f32_quant[GGML_TYPE_Q1_0], "cpy_f32_q1_0", cpy_f32_q1_0_len, cpy_f32_q1_0_data, "main", 2, sizeof(vk_op_unary_push_constants), {32, 1, 1}, {}, 1);
     ggml_vk_create_pipeline(device, device->pipeline_cpy_f32_quant[GGML_TYPE_Q4_0], "cpy_f32_q4_0", cpy_f32_q4_0_len, cpy_f32_q4_0_data, "main", 2, sizeof(vk_op_unary_push_constants), {32, 1, 1}, {}, 1);
@@ -4620,7 +4645,16 @@ static void ggml_vk_load_shaders(vk_device& device) {
         ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_Q5_0], "set_rows_q5_0" #itype, set_rows_q5_0 ## itype ## _len, set_rows_q5_0 ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true); \
         ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_Q5_1], "set_rows_q5_1" #itype, set_rows_q5_1 ## itype ## _len, set_rows_q5_1 ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true); \
         ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_Q8_0], "set_rows_q8_0" #itype, set_rows_q8_0 ## itype ## _len, set_rows_q8_0 ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true); \
-        ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_IQ4_NL], "set_rows_iq4_nl" #itype, set_rows_iq4_nl ## itype ## _len, set_rows_iq4_nl ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true);
+        ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_IQ4_NL], "set_rows_iq4_nl" #itype, set_rows_iq4_nl ## itype ## _len, set_rows_iq4_nl ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true); \
+        if (ggml_vk_supports_turbo_set_rows(device, GGML_TYPE_TURBO2_0)) { \
+            ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_TURBO2_0], "set_rows_turbo2_0" #itype, set_rows_turbo2_0 ## itype ## _len, set_rows_turbo2_0 ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true); \
+        } \
+        if (ggml_vk_supports_turbo_set_rows(device, GGML_TYPE_TURBO3_0)) { \
+            ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_TURBO3_0], "set_rows_turbo3_0" #itype, set_rows_turbo3_0 ## itype ## _len, set_rows_turbo3_0 ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true); \
+        } \
+        if (ggml_vk_supports_turbo_set_rows(device, GGML_TYPE_TURBO4_0)) { \
+            ggml_vk_create_pipeline(device, device->pipeline_set_rows ## itype [GGML_TYPE_TURBO4_0], "set_rows_turbo4_0" #itype, set_rows_turbo4_0 ## itype ## _len, set_rows_turbo4_0 ## itype ## _data, "main", 3, sizeof(vk_op_binary_push_constants), {1, 1, 1}, {1}, 1, true); \
+        }
 
     SET_ROWS(_i32)
     SET_ROWS(_i64)
@@ -9666,6 +9700,14 @@ static vk_pipeline ggml_vk_op_get_pipeline(ggml_backend_vk_context * ctx, const 
         } else {
             return ctx->device->pipeline_set_rows_i32[dst->type];
         }
+    case GGML_OP_TURBO_WHT:
+        if (src0->type == GGML_TYPE_F32 && (src1 == nullptr || src1->type == GGML_TYPE_F32) && dst->type == GGML_TYPE_F32 &&
+            ggml_is_contiguous(src0) && ggml_is_contiguous(dst) &&
+            (ggml_get_op_params_i32(dst, 1) == 0 || ggml_get_op_params_i32(dst, 1) == 128) &&
+            ggml_nelements(src0) % 128 == 0 && (src1 == nullptr || src1->ne[0] >= 128)) {
+            return ctx->device->pipeline_turbo_wht_f32;
+        }
+        return nullptr;
     case GGML_OP_SILU_BACK:
         if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
             return ctx->device->pipeline_silu_back_f32;
@@ -10143,6 +10185,16 @@ template <> void init_pushconst_tensor_offsets(ggml_backend_vk_context * ctx, vk
     GGML_UNUSED(src3);
 }
 
+template <> void init_pushconst_tensor_offsets(ggml_backend_vk_context * ctx, vk_op_turbo_wht_push_constants &p, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * src2, const ggml_tensor * src3, ggml_tensor * dst) {
+    GGML_ASSERT(get_misalign_bytes(ctx, src0) == 0);
+    GGML_ASSERT(src1 == nullptr || get_misalign_bytes(ctx, src1) == 0);
+    GGML_ASSERT(get_misalign_bytes(ctx, dst) == 0);
+
+    GGML_UNUSED(p);
+    GGML_UNUSED(src2);
+    GGML_UNUSED(src3);
+}
+
 template <> void init_pushconst_tensor_offsets(ggml_backend_vk_context * ctx, vk_op_upscale_push_constants &p, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * src2, const ggml_tensor * src3, ggml_tensor * dst) {
     const uint32_t a_offset = get_misalign_bytes(ctx, src0) / ggml_type_size(src0->type);
     const uint32_t d_offset = get_misalign_bytes(ctx, dst) / ggml_type_size(dst->type);
@@ -10440,7 +10492,11 @@ static void ggml_vk_op_f32(ggml_backend_vk_context * ctx, vk_context& subctx, co
     case GGML_OP_SET_ROWS:
         {
             uint32_t ne = ggml_nelements(src0);
-            if (ggml_is_quantized(dst->type)) {
+            if (dst->type == GGML_TYPE_TURBO2_0 ||
+                dst->type == GGML_TYPE_TURBO3_0 ||
+                dst->type == GGML_TYPE_TURBO4_0) {
+                ne = ne / 128;
+            } else if (ggml_is_quantized(dst->type)) {
                 // quants run 32 threads each doing QUANT_K elements
                 ne = CEIL_DIV(ne, 32 * ggml_blck_size(dst->type));
             } else {
@@ -10456,6 +10512,17 @@ static void ggml_vk_op_f32(ggml_backend_vk_context * ctx, vk_context& subctx, co
             }
         }
         break;
+    case GGML_OP_TURBO_WHT:
+        {
+            const uint32_t ne = ggml_nelements(src0) / 128;
+            if (ne > 262144) {
+                elements = { 512, 512, CEIL_DIV(ne, 262144) };
+            } else if (ne > 512) {
+                elements = { 512, CEIL_DIV(ne, 512), 1 };
+            } else {
+                elements = { ne, 1, 1 };
+            }
+        } break;
     case GGML_OP_SSM_CONV:
         {
             const uint32_t nr  = src0->ne[1];
@@ -11230,6 +11297,26 @@ static void ggml_vk_set_rows(ggml_backend_vk_context * ctx, vk_context& subctx, 
         (uint32_t) dst->ne[0], (uint32_t) dst->ne[1], (uint32_t) dst->ne[2],(uint32_t) dst->ne[3], (uint32_t) dst->nb[0] /  dst_type_size, (uint32_t) dst->nb[1] /  dst_type_size, (uint32_t) dst->nb[2] /  dst_type_size, (uint32_t) dst->nb[3] /  dst_type_size,
         0,
         0.0f, 0.0f, 0,
+    });
+}
+
+static void ggml_vk_turbo_wht(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    int32_t direction = 0;
+    int32_t group_size = 0;
+    memcpy(&direction, dst->op_params, sizeof(int32_t));
+    memcpy(&group_size, (const char *) dst->op_params + sizeof(int32_t), sizeof(int32_t));
+    if (group_size == 0) {
+        group_size = 128;
+    }
+
+    const bool has_scale = src1 != nullptr;
+    const ggml_tensor * scale = has_scale ? src1 : src0;
+
+    ggml_vk_op_f32<vk_op_turbo_wht_push_constants>(ctx, subctx, src0, scale, nullptr, nullptr, dst, GGML_OP_TURBO_WHT, {
+        (uint32_t) ggml_nelements(src0),
+        (uint32_t) direction,
+        (uint32_t) group_size,
+        (uint32_t) has_scale,
     });
 }
 
@@ -13462,6 +13549,10 @@ static bool ggml_vk_build_graph(ggml_backend_vk_context * ctx, ggml_cgraph * cgr
         break;
     case GGML_OP_SET_ROWS:
         ggml_vk_set_rows(ctx, compute_ctx, src0, src1, node);
+
+        break;
+    case GGML_OP_TURBO_WHT:
+        ggml_vk_turbo_wht(ctx, compute_ctx, src0, src1, node);
 
         break;
     case GGML_OP_SILU_BACK:
@@ -16084,9 +16175,21 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
                     case GGML_TYPE_Q8_0:
                     case GGML_TYPE_IQ4_NL:
                         return true;
+                    case GGML_TYPE_TURBO2_0:
+                    case GGML_TYPE_TURBO3_0:
+                    case GGML_TYPE_TURBO4_0:
+                        return op->src[0]->ne[0] % 128 == 0 && ggml_vk_supports_turbo_set_rows(device, op->type);
                     default:
                         return false;
                 }
+            }
+        case GGML_OP_TURBO_WHT:
+            {
+                const int32_t group_size = ggml_get_op_params_i32(op, 1);
+                return op->src[0]->type == GGML_TYPE_F32 && (op->src[1] == nullptr || op->src[1]->type == GGML_TYPE_F32) && op->type == GGML_TYPE_F32 &&
+                       ggml_is_contiguous(op->src[0]) && ggml_is_contiguous(op) &&
+                       (group_size == 0 || group_size == 128) &&
+                       ggml_nelements(op->src[0]) % 128 == 0 && (op->src[1] == nullptr || (ggml_is_contiguous(op->src[1]) && op->src[1]->ne[0] >= 128));
             }
         case GGML_OP_CONT:
         case GGML_OP_CPY:

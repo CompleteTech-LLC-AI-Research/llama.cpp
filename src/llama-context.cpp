@@ -3389,6 +3389,29 @@ llama_context * llama_init_from_model(
         return nullptr;
     }
 
+    const bool k_is_turbo_cache = params.type_k == GGML_TYPE_TURBO2_0 ||
+                                  params.type_k == GGML_TYPE_TURBO3_0 ||
+                                  params.type_k == GGML_TYPE_TURBO4_0;
+    const bool v_is_turbo_cache = params.type_v == GGML_TYPE_TURBO2_0 ||
+                                  params.type_v == GGML_TYPE_TURBO3_0 ||
+                                  params.type_v == GGML_TYPE_TURBO4_0;
+    const bool has_turbo_cache = k_is_turbo_cache || v_is_turbo_cache;
+
+    const bool uses_hip_kqv = params.offload_kqv && [&model]() {
+        for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
+            ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(model->dev_layer(il));
+            if (reg && strcmp(ggml_backend_reg_name(reg), "ROCm") == 0) {
+                return true;
+            }
+        }
+        return false;
+    }();
+
+    if (has_turbo_cache && uses_hip_kqv) {
+        LLAMA_LOG_ERROR("%s: turbo KV cache types are not supported on HIP yet\n", __func__);
+        return nullptr;
+    }
+
     if (params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED && model->arch == LLM_ARCH_GROK) {
         LLAMA_LOG_WARN("%s: flash_attn is not compatible with Grok - forcing off\n", __func__);
         params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
@@ -3412,7 +3435,12 @@ llama_context * llama_init_from_model(
     if (params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED && ggml_is_quantized(params.type_k)) {
         const uint32_t blck_size = ggml_blck_size(params.type_k);
         for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
-            if (model->hparams.n_embd_head_k(il) % blck_size != 0) {
+            uint32_t head_k = model->hparams.n_embd_head_k(il);
+            // Turbo types zero-pad heads to next multiple of 128 in llama-kv-cache.cpp
+            if (k_is_turbo_cache && head_k % 128 != 0) {
+                head_k = ((head_k + 127) / 128) * 128;
+            }
+            if (head_k % blck_size != 0) {
                 LLAMA_LOG_ERROR("%s: K cache type %s with block size %u does not divide n_embd_head_k=%u\n",
                     __func__, ggml_type_name(params.type_k), blck_size, model->hparams.n_embd_head_k(il));
                 return nullptr;
@@ -3422,13 +3450,29 @@ llama_context * llama_init_from_model(
 
     if (params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED && ggml_is_quantized(params.type_v)) {
         const uint32_t blck_size = ggml_blck_size(params.type_v);
+        const bool is_mla = model->hparams.is_mla();
         for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
-            if (model->hparams.n_embd_head_v(il) % blck_size != 0) {
+            uint32_t head_v = model->hparams.n_embd_head_v(il);
+            // Turbo types zero-pad; MLA has no separate V cache (V = view of K)
+            if (v_is_turbo_cache && !is_mla && head_v % 128 != 0) {
+                head_v = ((head_v + 127) / 128) * 128;
+            }
+            if (head_v % blck_size != 0) {
                 LLAMA_LOG_ERROR("%s: V cache type %s with block size %u does not divide n_embd_head_v=%u\n",
                     __func__, ggml_type_name(params.type_v), blck_size, model->hparams.n_embd_head_v(il));
                 return nullptr;
             }
         }
+    }
+
+    // TurboQuant cache types require flash attention. Grok explicitly disables it above.
+    if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_DISABLED && has_turbo_cache && model->arch == LLM_ARCH_GROK) {
+        LLAMA_LOG_ERROR("%s: turbo cache types require flash_attn, but flash_attn is not compatible with Grok\n", __func__);
+        return nullptr;
+    }
+    if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_DISABLED && has_turbo_cache) {
+        LLAMA_LOG_WARN("%s: turbo cache types require flash_attn - enabling automatically\n", __func__);
+        params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
     }
 
     if (ggml_is_quantized(params.type_v) && params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_DISABLED) {
