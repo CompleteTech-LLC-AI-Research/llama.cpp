@@ -753,7 +753,9 @@ static struct ggml_backend_meta_split_state ggml_backend_meta_get_split_state(co
         GGML_ASSERT(src_ss[2].axis == GGML_BACKEND_SPLIT_AXIS_1);
         GGML_ASSERT(src_ss[3].axis == GGML_BACKEND_SPLIT_AXIS_1);
         GGML_ASSERT(src_ss[4].axis == GGML_BACKEND_SPLIT_AXIS_1);
-        GGML_ASSERT(src_ss[5].axis == GGML_BACKEND_SPLIT_AXIS_2);
+        // state shape is (S_v*S_v*H, K, n_seqs); the heads dim is nested inside axis 0,
+        // so a head-aligned split on the input cache reshapes to axis 0 here (not axis 2).
+        GGML_ASSERT(src_ss[5].axis == GGML_BACKEND_SPLIT_AXIS_2 || src_ss[5].axis == GGML_BACKEND_SPLIT_AXIS_1 || src_ss[5].axis == GGML_BACKEND_SPLIT_AXIS_0);
         return {GGML_BACKEND_SPLIT_AXIS_0, {0}, 1};
     };
 
@@ -2100,8 +2102,8 @@ static const ggml_backend_i ggml_backend_meta_i = {
     /* .free                    = */ ggml_backend_meta_free,
     /* .set_tensor_async        = */ ggml_backend_meta_set_tensor_async,
     /* .get_tensor_async        = */ ggml_backend_meta_get_tensor_async,
-    /* .get_tensor_2d_async     = */ nullptr,
     /* .set_tensor_2d_async     = */ nullptr,
+    /* .get_tensor_2d_async     = */ nullptr,
     /* .cpy_tensor_async        = */ nullptr,
     /* .synchronize             = */ ggml_backend_meta_synchronize,
     /* .graph_plan_create       = */ nullptr,
@@ -2140,4 +2142,3 @@ ggml_backend_t ggml_backend_meta_simple_backend(ggml_backend_t meta_backend, siz
     const ggml_backend_meta_context * backend_ctx = (const ggml_backend_meta_context *) meta_backend->context;
     return backend_ctx->backend_configs[index].backend;
 }
-
