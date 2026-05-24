@@ -9,6 +9,7 @@
 #
 # Optional:
 #   LLAMA_SERVER=/path/to/llama-server
+#   VULKAN_DEVICE=Vulkan0
 #   CHAT_TEMPLATE_FILE=/path/to/google-gemma-4-31B-it-interleaved.fixed.jinja
 #   HOST=127.0.0.1 PORT=18085 CTX_SIZE=65537 BATCH_SIZE=512 UBATCH_SIZE=512
 #   GPU_LAYERS=999 GPU_LAYERS_DRAFT=999 N_CPU_MOE=38 N_CPU_MOE_DRAFT=38
@@ -51,6 +52,7 @@ PROMPT="${PROMPT:-Reply with exactly: turbo4v-ok}"
 EXPECT="${EXPECT:-turbo4v-ok}"
 LOG_FILE="${LOG_FILE:-${TMPDIR:-/tmp}/llama-turbo4-vulkan-gemma4-smoke.log}"
 REQUIRE_LOG_MARKERS="${REQUIRE_LOG_MARKERS:-1}"
+VULKAN_DEVICE="${VULKAN_DEVICE:-Vulkan0}"
 
 if [[ -z "$LLAMA_SERVER" || ! -x "$LLAMA_SERVER" ]]; then
     echo "SKIP: set LLAMA_SERVER or build llama-server before running this smoke test."
@@ -72,6 +74,13 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
+DEVICE_LIST="$("$LLAMA_SERVER" --list-devices 2>&1 || true)"
+if ! grep -Fq "$VULKAN_DEVICE:" <<< "$DEVICE_LIST"; then
+    echo "SKIP: requested Vulkan device '$VULKAN_DEVICE' is unavailable."
+    echo "$DEVICE_LIST"
+    exit 0
+fi
+
 SERVER_PID=""
 REQUEST_FILE="$(mktemp "${TMPDIR:-/tmp}/turbo4-vulkan-gemma4-request.XXXXXX.json")"
 RESPONSE_FILE="$(mktemp "${TMPDIR:-/tmp}/turbo4-vulkan-gemma4-response.XXXXXX.json")"
@@ -87,6 +96,7 @@ trap cleanup EXIT
 
 server_args=(
     -m "$MODEL"
+    -dev "$VULKAN_DEVICE"
     -ngl "$GPU_LAYERS"
     -ngld "$GPU_LAYERS_DRAFT"
     -ncmoe "$N_CPU_MOE"
@@ -123,6 +133,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 echo "Starting Gemma4 Vulkan TurboQuant smoke:"
 echo "  server: $LLAMA_SERVER"
 echo "  model:  $MODEL"
+echo "  device: $VULKAN_DEVICE"
 echo "  cache:  -ctk turbo4 -ctv turbo4"
 echo "  log:    $LOG_FILE"
 
@@ -143,6 +154,13 @@ until curl -fsS "http://$HOST:$PORT/health" >/dev/null 2>&1; do
     fi
     sleep 2
 done
+
+if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+    echo "FAIL: llama-server exited before the healthy endpoint was accepted."
+    echo "      Check for a stale process already bound to $HOST:$PORT."
+    tail -n 200 "$LOG_FILE" || true
+    exit 1
+fi
 
 PROMPT="$PROMPT" python3 - "$REQUEST_FILE" <<'PY'
 import json
@@ -176,8 +194,13 @@ if ! grep -Fq "$EXPECT" "$RESPONSE_FILE"; then
 fi
 
 if [[ "$REQUIRE_LOG_MARKERS" == "1" ]]; then
-    if ! grep -Fq "Vulkan0" "$LOG_FILE"; then
+    if ! grep -Eq "using device Vulkan[0-9]+| - Vulkan[0-9]+ :" "$LOG_FILE"; then
         echo "FAIL: server log does not show Vulkan backend startup."
+        tail -n 200 "$LOG_FILE" || true
+        exit 1
+    fi
+    if ! grep -Fq "using device $VULKAN_DEVICE" "$LOG_FILE"; then
+        echo "FAIL: server log does not show model placement on $VULKAN_DEVICE."
         tail -n 200 "$LOG_FILE" || true
         exit 1
     fi
