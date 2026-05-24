@@ -57,6 +57,12 @@ SRC=`pwd`
 CMAKE_EXTRA="-DLLAMA_FATAL_WARNINGS=${LLAMA_FATAL_WARNINGS:-ON} -DLLAMA_OPENSSL=OFF -DGGML_SCHED_NO_REALLOC=ON"
 CTEST_EXTRA=""
 
+# Low-perf CI uses native CPU codegen on shared hosted runners. Do not reuse
+# cached native objects across machines with potentially different CPU features.
+if [ ! -z ${GG_BUILD_LOW_PERF} ]; then
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_CCACHE=OFF"
+fi
+
 # Default to use make unless specified for compatibility
 CMAKE_GENERATOR="Unix Makefiles"
 
