@@ -620,7 +620,7 @@ struct common_params {
 #ifdef LLAMA_UI_DEFAULT_ENABLED
     bool ui = LLAMA_UI_DEFAULT_ENABLED != 0;
 #else
-    bool ui = true; // default to enabled when not set
+    bool ui = false;
 #endif
 
     // Deprecated: use ui, ui_mcp_proxy, ui_config_json instead
