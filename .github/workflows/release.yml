@@ -1008,6 +1008,7 @@ jobs:
       - name: Cache ROCm Installation
         id: cache-rocm
         uses: actions/cache@v5
+        continue-on-error: true
         with:
           path: C:\Program Files\AMD\ROCm
           key: rocm-${{ env.HIPSDK_INSTALLER_VERSION }}-${{ runner.os }}
