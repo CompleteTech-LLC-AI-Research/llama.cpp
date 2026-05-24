@@ -36,6 +36,23 @@ set(UI_CPP "${CMAKE_CURRENT_BINARY_DIR}/ui.cpp")
 set(UI_H   "${CMAKE_CURRENT_BINARY_DIR}/ui.h")
 
 if(CMAKE_CROSSCOMPILING)
+    function(llama_check_host_cxx compiler out_var)
+        set(src "${CMAKE_CURRENT_BINARY_DIR}/host-cxx-check.cpp")
+        set(exe "${CMAKE_CURRENT_BINARY_DIR}/host-cxx-check${CMAKE_EXECUTABLE_SUFFIX}")
+        file(WRITE "${src}" "#include <stdio.h>\nint main() { puts(\"ok\"); return 0; }\n")
+        execute_process(
+            COMMAND "${compiler}" -std=c++17 "${src}" -o "${exe}"
+            RESULT_VARIABLE rc
+            OUTPUT_QUIET
+            ERROR_QUIET
+        )
+        if(rc EQUAL 0)
+            set(${out_var} TRUE PARENT_SCOPE)
+        else()
+            set(${out_var} FALSE PARENT_SCOPE)
+        endif()
+    endfunction()
+
     find_program(HOST_CXX_COMPILER
         NAMES c++ g++ clang++
         PATHS /usr/local/bin /usr/bin /bin
@@ -44,27 +61,39 @@ if(CMAKE_CROSSCOMPILING)
     if(NOT HOST_CXX_COMPILER)
         find_program(HOST_CXX_COMPILER NAMES c++ g++ clang++ NO_CMAKE_FIND_ROOT_PATH)
     endif()
-    if(NOT HOST_CXX_COMPILER)
-        message(FATAL_ERROR "UI: no host C++ compiler (g++/clang++) found to build llama-ui-embed; set -DHOST_CXX_COMPILER=<path>")
+    if(HOST_CXX_COMPILER)
+        llama_check_host_cxx("${HOST_CXX_COMPILER}" HOST_CXX_OK)
+        if(NOT HOST_CXX_OK)
+            message(STATUS "UI: ignoring unusable host compiler ${HOST_CXX_COMPILER}")
+            unset(HOST_CXX_COMPILER CACHE)
+            unset(HOST_CXX_COMPILER)
+        endif()
     endif()
-    message(STATUS "UI: building llama-ui-embed with host compiler ${HOST_CXX_COMPILER}")
 
-    if(CMAKE_HOST_WIN32)
-        set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed.exe")
+    if(HOST_CXX_COMPILER)
+        message(STATUS "UI: building llama-ui-embed with host compiler ${HOST_CXX_COMPILER}")
+
+        if(CMAKE_HOST_WIN32)
+            set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed.exe")
+        else()
+            set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed")
+        endif()
+
+        add_custom_command(
+            OUTPUT  "${LLAMA_UI_EMBED_EXE}"
+            COMMAND "${HOST_CXX_COMPILER}" -O2 -std=c++17
+                    -o "${LLAMA_UI_EMBED_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
+            COMMENT "Building llama-ui-embed (host)"
+            VERBATIM
+        )
+        add_custom_target(llama-ui-embed-host DEPENDS "${LLAMA_UI_EMBED_EXE}")
+        set(LLAMA_UI_EMBED_TARGET llama-ui-embed-host)
     else()
-        set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed")
+        message(STATUS "UI: no usable host C++ compiler, using CMake asset emitter")
+        set(LLAMA_UI_EMBED_EXE "")
+        set(LLAMA_UI_EMBED_TARGET "")
     endif()
-
-    add_custom_command(
-        OUTPUT  "${LLAMA_UI_EMBED_EXE}"
-        COMMAND "${HOST_CXX_COMPILER}" -O2 -std=c++17
-                -o "${LLAMA_UI_EMBED_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
-        COMMENT "Building llama-ui-embed (host)"
-        VERBATIM
-    )
-    add_custom_target(llama-ui-embed-host DEPENDS "${LLAMA_UI_EMBED_EXE}")
-    set(LLAMA_UI_EMBED_TARGET llama-ui-embed-host)
 else()
     add_executable(llama-ui-embed embed.cpp)
     target_compile_features(llama-ui-embed PRIVATE cxx_std_17)
@@ -94,7 +123,9 @@ add_custom_target(llama-ui-assets ALL
     VERBATIM
 )
 
-add_dependencies(llama-ui-assets ${LLAMA_UI_EMBED_TARGET})
+if(LLAMA_UI_EMBED_TARGET)
+    add_dependencies(llama-ui-assets ${LLAMA_UI_EMBED_TARGET})
+endif()
 
 set_source_files_properties(${UI_CPP} ${UI_H} PROPERTIES GENERATED TRUE)
 

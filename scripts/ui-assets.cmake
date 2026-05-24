@@ -255,6 +255,68 @@ endfunction()
 function(emit_files)
     assets_present(present)
 
+    if("${LLAMA_UI_EMBED}" STREQUAL "")
+        set(h "#pragma once\n\n#include <stddef.h>\n\n")
+        if(present)
+            string(APPEND h "#define LLAMA_UI_HAS_ASSETS 1\n\n")
+        endif()
+        string(APPEND h
+            "struct llama_ui_asset {\n"
+            "    const char *          name;\n"
+            "    const unsigned char * data;\n"
+            "    size_t                size;\n"
+            "};\n\n"
+            "const llama_ui_asset * llama_ui_find_asset(const char * name);\n"
+        )
+
+        set(cpp "#include \"ui.h\"\n\n#include <string.h>\n\n")
+        if(present)
+            set(asset_index 0)
+            foreach(asset ${ASSETS})
+                file(READ "${DIST_DIR}/${asset}" asset_hex HEX)
+                string(REGEX REPLACE "([0-9A-Fa-f][0-9A-Fa-f])" "0x\\1," asset_bytes "${asset_hex}")
+                string(LENGTH "${asset_hex}" asset_hex_len)
+                math(EXPR asset_size "${asset_hex_len} / 2")
+                string(APPEND cpp
+                    "static const unsigned char asset_${asset_index}_data[] = {${asset_bytes}};\n"
+                    "static const size_t        asset_${asset_index}_size = ${asset_size};\n\n"
+                )
+                math(EXPR asset_index "${asset_index} + 1")
+            endforeach()
+
+            string(APPEND cpp "static const llama_ui_asset g_assets[] = {\n")
+            set(asset_index 0)
+            foreach(asset ${ASSETS})
+                string(APPEND cpp "    { \"${asset}\", asset_${asset_index}_data, asset_${asset_index}_size },\n")
+                math(EXPR asset_index "${asset_index} + 1")
+            endforeach()
+            string(APPEND cpp
+                "};\n\n"
+                "const llama_ui_asset * llama_ui_find_asset(const char * name) {\n"
+                "    for (const auto & a : g_assets) {\n"
+                "        if (strcmp(a.name, name) == 0) {\n"
+                "            return &a;\n"
+                "        }\n"
+                "    }\n"
+                "    return nullptr;\n"
+                "}\n"
+            )
+        else()
+            string(APPEND cpp
+                "const llama_ui_asset * llama_ui_find_asset(const char *) {\n"
+                "    return nullptr;\n"
+                "}\n"
+            )
+        endif()
+
+        file(WRITE "${UI_H}.tmp" "${h}")
+        file(WRITE "${UI_CPP}.tmp" "${cpp}")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different "${UI_H}.tmp" "${UI_H}")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different "${UI_CPP}.tmp" "${UI_CPP}")
+        file(REMOVE "${UI_H}.tmp" "${UI_CPP}.tmp")
+        return()
+    endif()
+
     set(args "${UI_CPP}" "${UI_H}")
     if(present)
         foreach(asset ${ASSETS})
