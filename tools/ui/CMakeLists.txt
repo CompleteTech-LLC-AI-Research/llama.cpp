@@ -36,7 +36,14 @@ set(UI_CPP "${CMAKE_CURRENT_BINARY_DIR}/ui.cpp")
 set(UI_H   "${CMAKE_CURRENT_BINARY_DIR}/ui.h")
 
 if(CMAKE_CROSSCOMPILING)
-    find_program(HOST_CXX_COMPILER NAMES g++ clang++ NO_CMAKE_FIND_ROOT_PATH)
+    find_program(HOST_CXX_COMPILER
+        NAMES c++ g++ clang++
+        PATHS /usr/local/bin /usr/bin /bin
+        NO_DEFAULT_PATH
+    )
+    if(NOT HOST_CXX_COMPILER)
+        find_program(HOST_CXX_COMPILER NAMES c++ g++ clang++ NO_CMAKE_FIND_ROOT_PATH)
+    endif()
     if(NOT HOST_CXX_COMPILER)
         message(FATAL_ERROR "UI: no host C++ compiler (g++/clang++) found to build llama-ui-embed; set -DHOST_CXX_COMPILER=<path>")
     endif()
