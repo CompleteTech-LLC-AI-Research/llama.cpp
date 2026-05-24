@@ -826,10 +826,17 @@ private:
                 cparams_dft.n_rs_seq = 0;
 
                 std::vector<ggml_backend_dev_t> devs;
+                std::vector<ggml_backend_dev_t> target_devs;
                 uint32_t hp_ngl = 0;
                 uint32_t hp_nct = 0;
                 uint32_t hp_nex = 0;
                 try {
+                    auto mparams_tgt = common_model_params_to_llama(params_base);
+                    auto cparams_tgt = common_context_params_to_llama(params_base);
+                    (void) common_get_device_memory_data(
+                        params_base.model.path.c_str(), &mparams_tgt, &cparams_tgt,
+                        target_devs, hp_ngl, hp_nct, hp_nex, GGML_LOG_LEVEL_ERROR);
+
                     auto dmd = common_get_device_memory_data(
                         params_dft.model.path.c_str(), &mparams_dft, &cparams_dft,
                         devs, hp_ngl, hp_nct, hp_nex, GGML_LOG_LEVEL_ERROR);
@@ -837,22 +844,14 @@ private:
                     GGML_ASSERT(!params_base.fit_params_target.empty());
                     size_t total = 0;
 
-                    std::vector<ggml_backend_dev_t> tgt_devices = params.devices;
-
-                    if (tgt_devices.empty()) {
-                        for(size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-                           tgt_devices.push_back(ggml_backend_dev_get(i));
-                        }
-                    }
-
                     for (size_t j = 0; j < devs.size(); ++j) {
                         const size_t bytes =
                             (measure_model_bytes ? dmd[j].mb.model : 0) +
                             dmd[j].mb.context +
                             dmd[j].mb.compute;
                         total += bytes;
-                        for (size_t i = 0; i < tgt_devices.size(); i++) {
-                            if (tgt_devices[i] == devs[j]) {
+                        for (size_t i = 0; i < target_devs.size(); ++i) {
+                            if (target_devs[i] == devs[j] && i < params_base.fit_params_target.size()) {
                                 SRV_DBG("[spec] adding %.2f MiB to fit_params_target for device %s\n",
                                         bytes / (1024.0 * 1024.0), ggml_backend_dev_name(devs[j]));
                                 params_base.fit_params_target[i] += bytes;

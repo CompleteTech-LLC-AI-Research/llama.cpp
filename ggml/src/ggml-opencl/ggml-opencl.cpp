@@ -713,6 +713,8 @@ struct ggml_backend_opencl_context {
     }
 
     void write_profiling_info() {
+        flush_profiling_batch();
+
         if (profiling_results.empty()) {
             return;
         }

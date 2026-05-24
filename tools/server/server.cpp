@@ -10,6 +10,7 @@
 #include "fit.h"
 #include "llama.h"
 #include "log.h"
+#include "ui.h"
 
 #include <atomic>
 #include <clocale>
@@ -79,6 +80,10 @@ int llama_server(int argc, char ** argv) {
 
     // own arguments required by this example
     common_params params;
+#if defined(LLAMA_UI_HAS_ASSETS)
+    params.ui = true;
+    params.webui = true;
+#endif
 
     common_init();
 

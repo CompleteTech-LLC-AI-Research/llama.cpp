@@ -617,7 +617,11 @@ struct common_params {
     std::map<std::string, std::string> default_template_kwargs;
 
     // UI configs
-    bool ui = true;
+#ifdef LLAMA_UI_DEFAULT_ENABLED
+    bool ui = LLAMA_UI_DEFAULT_ENABLED != 0;
+#else
+    bool ui = false;
+#endif
 
     // Deprecated: use ui, ui_mcp_proxy, ui_config_json instead
     bool webui = ui;

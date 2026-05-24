@@ -1,9 +1,9 @@
 # Provision UI assets and generate ui.cpp/ui.h.
 #
 # Asset provisioning priority:
-#   1. Pre-built assets in SRC_DIST_DIR (manually built by user)
+#   1. If BUILD_UI=ON: pre-built assets in SRC_DIST_DIR (manually built by user)
 #   2. If BUILD_UI=ON: npm build
-#   3. If above did not produce assets and HF_ENABLED=ON: HF Bucket download
+#   3. If BUILD_UI=ON, above did not produce assets, and HF_ENABLED=ON: HF Bucket download
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -257,7 +257,7 @@ function(emit_files)
 
     if("${LLAMA_UI_EMBED}" STREQUAL "")
         set(h "#pragma once\n\n#include <stddef.h>\n\n")
-        if(present)
+        if(BUILD_UI AND present)
             string(APPEND h "#define LLAMA_UI_HAS_ASSETS 1\n\n")
         endif()
         string(APPEND h
@@ -270,7 +270,7 @@ function(emit_files)
         )
 
         set(cpp "#include \"ui.h\"\n\n#include <string.h>\n\n")
-        if(present)
+        if(BUILD_UI AND present)
             set(asset_index 0)
             foreach(asset ${ASSETS})
                 file(READ "${DIST_DIR}/${asset}" asset_hex HEX)
@@ -318,7 +318,7 @@ function(emit_files)
     endif()
 
     set(args "${UI_CPP}" "${UI_H}")
-    if(present)
+    if(BUILD_UI AND present)
         foreach(asset ${ASSETS})
             list(APPEND args "${asset}" "${DIST_DIR}/${asset}")
         endforeach()
@@ -336,10 +336,12 @@ endfunction()
 # ---------------------------------------------------------------------------
 # 1. Priority 1: pre-built assets supplied in tools/ui/dist
 # ---------------------------------------------------------------------------
-copy_src_dist(SRC_OK)
-if(SRC_OK)
-    emit_files()
-    return()
+if(BUILD_UI)
+    copy_src_dist(SRC_OK)
+    if(SRC_OK)
+        emit_files()
+        return()
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -355,9 +357,9 @@ if(BUILD_UI)
 endif()
 
 # ---------------------------------------------------------------------------
-# 3. Priority 3: HF Bucket download (if npm did not produce assets and HF_ENABLED=ON)
+# 3. Priority 3: HF Bucket download (if BUILD_UI=ON, npm did not produce assets, and HF_ENABLED=ON)
 # ---------------------------------------------------------------------------
-if(NOT provisioned AND HF_ENABLED)
+if(BUILD_UI AND NOT provisioned AND HF_ENABLED)
     resolve_version(VERSION)
 
     set(stamp_ok FALSE)
@@ -388,7 +390,7 @@ endif()
 # ---------------------------------------------------------------------------
 # 4. Fallback: warn about stale or missing assets, then emit whatever we have
 # ---------------------------------------------------------------------------
-if(NOT provisioned)
+if(BUILD_UI AND NOT provisioned)
     assets_present(have_assets)
     if(have_assets)
         message(WARNING "UI: provisioning failed; embedding stale assets from ${DIST_DIR}")
@@ -399,6 +401,8 @@ if(NOT provisioned)
                         "https://github.com/ggml-org/llama.cpp/releases and "
                         "extract to tools/ui/dist.")
     endif()
+elseif(NOT BUILD_UI)
+    message(STATUS "UI: LLAMA_BUILD_UI=OFF, building without an embedded UI")
 endif()
 
 emit_files()
