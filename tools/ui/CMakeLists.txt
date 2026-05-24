@@ -38,8 +38,13 @@ set(UI_H   "${CMAKE_CURRENT_BINARY_DIR}/ui.h")
 if(CMAKE_CROSSCOMPILING)
     function(llama_check_host_cxx compiler out_var)
         set(src "${CMAKE_CURRENT_BINARY_DIR}/host-cxx-check.cpp")
-        set(exe "${CMAKE_CURRENT_BINARY_DIR}/host-cxx-check${CMAKE_EXECUTABLE_SUFFIX}")
+        if(CMAKE_HOST_WIN32)
+            set(exe "${CMAKE_CURRENT_BINARY_DIR}/host-cxx-check.exe")
+        else()
+            set(exe "${CMAKE_CURRENT_BINARY_DIR}/host-cxx-check")
+        endif()
         file(WRITE "${src}" "#include <stdio.h>\nint main() { puts(\"ok\"); return 0; }\n")
+        set(run_rc 1)
         execute_process(
             COMMAND "${compiler}" -std=c++17 "${src}" -o "${exe}"
             RESULT_VARIABLE rc
@@ -47,6 +52,14 @@ if(CMAKE_CROSSCOMPILING)
             ERROR_QUIET
         )
         if(rc EQUAL 0)
+            execute_process(
+                COMMAND "${exe}"
+                RESULT_VARIABLE run_rc
+                OUTPUT_QUIET
+                ERROR_QUIET
+            )
+        endif()
+        if(rc EQUAL 0 AND run_rc EQUAL 0)
             set(${out_var} TRUE PARENT_SCOPE)
         else()
             set(${out_var} FALSE PARENT_SCOPE)
