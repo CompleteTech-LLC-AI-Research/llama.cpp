@@ -87,9 +87,9 @@ if(CMAKE_CROSSCOMPILING)
         message(STATUS "UI: building llama-ui-embed with host compiler ${HOST_CXX_COMPILER}")
 
         if(CMAKE_HOST_WIN32)
-            set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed.exe")
+            set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed-host.exe")
         else()
-            set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed")
+            set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed-host")
         endif()
 
         add_custom_command(
@@ -145,6 +145,10 @@ set_source_files_properties(${UI_CPP} ${UI_H} PROPERTIES GENERATED TRUE)
 add_library(${TARGET} STATIC ${UI_CPP} ${UI_H})
 target_compile_features(${TARGET} PRIVATE cxx_std_17)
 add_dependencies(${TARGET} llama-ui-assets)
+
+if (BUILD_SHARED_LIBS)
+    set_target_properties(${TARGET} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 
 target_include_directories(${TARGET} PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
