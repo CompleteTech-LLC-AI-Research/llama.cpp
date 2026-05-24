@@ -100,8 +100,8 @@ if(CMAKE_CROSSCOMPILING)
             COMMENT "Building llama-ui-embed (host)"
             VERBATIM
         )
-        add_custom_target(llama-ui-embed-host DEPENDS "${LLAMA_UI_EMBED_EXE}")
-        set(LLAMA_UI_EMBED_TARGET llama-ui-embed-host)
+        add_custom_target(llama-ui-embed-host-target DEPENDS "${LLAMA_UI_EMBED_EXE}")
+        set(LLAMA_UI_EMBED_TARGET llama-ui-embed-host-target)
     else()
         message(STATUS "UI: no usable host C++ compiler, using CMake asset emitter")
         set(LLAMA_UI_EMBED_EXE "")
