@@ -56,7 +56,8 @@ if(CMAKE_CROSSCOMPILING)
         COMMENT "Building llama-ui-embed (host)"
         VERBATIM
     )
-    add_custom_target(llama-ui-embed DEPENDS "${LLAMA_UI_EMBED_EXE}")
+    add_custom_target(llama-ui-embed-host DEPENDS "${LLAMA_UI_EMBED_EXE}")
+    set(LLAMA_UI_EMBED_TARGET llama-ui-embed-host)
 else()
     add_executable(llama-ui-embed embed.cpp)
     target_compile_features(llama-ui-embed PRIVATE cxx_std_17)
@@ -64,6 +65,7 @@ else()
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     )
     set(LLAMA_UI_EMBED_EXE "$<TARGET_FILE:llama-ui-embed>")
+    set(LLAMA_UI_EMBED_TARGET llama-ui-embed)
 endif()
 
 # Run the provisioning script every build so source changes in tools/ui/ are
@@ -85,7 +87,7 @@ add_custom_target(llama-ui-assets ALL
     VERBATIM
 )
 
-add_dependencies(llama-ui-assets llama-ui-embed)
+add_dependencies(llama-ui-assets ${LLAMA_UI_EMBED_TARGET})
 
 set_source_files_properties(${UI_CPP} ${UI_H} PROPERTIES GENERATED TRUE)
 
