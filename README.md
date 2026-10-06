@@ -1,3 +1,7 @@
+> **About this fork.** This is a fork of [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp); the project and nearly all of its code belong to upstream. The fork's `master` carries a small set of changes on top of upstream as of its last sync:
+> a fix to the Gemma 4 thinking generation prompt (chat templates and `tests/test-chat.cpp`), an audio transcription fallback for chat input in the server, and TurboQuant `turbo2`/`turbo3`/`turbo4` cache-type support including a Vulkan `SET_ROWS` path for `turbo4`.
+> These changes are not part of upstream, have not been submitted upstream from here, and this fork is behind upstream's `master`. For releases, documentation and support, use the upstream project.
+
 # llama.cpp
 
 ![llama](https://user-images.githubusercontent.com/1991296/230134379-7181e485-c521-4d23-a0d6-f7b3b61ba524.png)
